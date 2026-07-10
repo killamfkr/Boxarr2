@@ -25,3 +25,20 @@ func TestPickBestSkipsBlocklisted(t *testing.T) {
 		t.Fatalf("blocklisted release must be skipped; got %q ok=%v", best.Title, ok)
 	}
 }
+
+// The resolution/quality weights must actually drive the pick. The higher-res
+// release is listed SECOND, so a scorer that ignores parsed resolution (the old
+// bug, where every candidate tied and sort.SliceStable kept input order) would
+// wrongly return the 480p release that appears first.
+func TestPickBestRanksByParsedResolution(t *testing.T) {
+	cat, _, _ := newCatalog(t, selCfg())
+	ctx := context.Background()
+	results := []prowlarr.ReleaseResource{
+		{Title: "Movie.2024.German.DL.480p.WEBRip-ALT", Protocol: "usenet", Size: 1_000_000_000},
+		{Title: "Movie.2024.German.DL.2160p.BluRay-TOP", Protocol: "usenet", Size: 8_000_000_000},
+	}
+	best, ok := cat.pickBest(ctx, results, "movie")
+	if !ok || best.Title != results[1].Title {
+		t.Fatalf("should pick the 2160p release regardless of input order, got %q ok=%v", best.Title, ok)
+	}
+}

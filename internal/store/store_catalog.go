@@ -187,8 +187,12 @@ func scanSeason(row scanner) (*media.Season, error) {
 // status 'missing'.
 func (s *Store) ResetImportLinks(ctx context.Context, jobID int64) error {
 	for _, table := range []string{"movie", "episode"} {
+		// job_id is a FOREIGN KEY onto jobs(id), which is AUTOINCREMENT and never 0.
+		// Writing 0 raises FOREIGN KEY constraint failed under _pragma=foreign_keys(1),
+		// aborting the rollback and stranding the row as has_file=1 forever. NULL is
+		// what every other reset path writes.
 		if _, err := s.db.ExecContext(ctx,
-			`UPDATE `+table+` SET has_file=0, status='missing', library_path='', job_id=0 WHERE job_id=?`,
+			`UPDATE `+table+` SET has_file=0, status='missing', library_path='', job_id=NULL WHERE job_id=?`,
 			jobID); err != nil {
 			return fmt.Errorf("resetting %s import links: %w", table, err)
 		}

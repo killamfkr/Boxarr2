@@ -3,6 +3,7 @@ package worker
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -146,6 +147,72 @@ func TestSubmitterSubmitsPendingJob(t *testing.T) {
 	}
 	if len(fake.created) != 1 {
 		t.Errorf("expected 1 submission, got %d", len(fake.created))
+	}
+}
+
+// A backlog drains in bounded bursts, not one job per tick: the rolling hourly
+// headroom is the real cap, so a tick may fire up to maxBurstPerTick creates.
+func TestSubmitterDrainsBacklogInBurst(t *testing.T) {
+	fake := &fakeTorBox{}
+	w, st, cfg := testWorkers(t, fake)
+	cfg.MaxCreatePerHour = 60
+	ctx := context.Background()
+	for i := 0; i < maxBurstPerTick+5; i++ {
+		if _, err := st.CreateJob(ctx, &job.Job{
+			State: job.StatePending, Category: "sonarr",
+			NZBName: fmt.Sprintf("Rel%d", i), NZBContent: []byte("<nzb/>"),
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := w.submitOnce(ctx); err != nil {
+		t.Fatalf("submitOnce: %v", err)
+	}
+	if len(fake.created) != maxBurstPerTick {
+		t.Errorf("first tick submitted %d, want %d", len(fake.created), maxBurstPerTick)
+	}
+	if err := w.submitOnce(ctx); err != nil {
+		t.Fatalf("submitOnce (2nd tick): %v", err)
+	}
+	if len(fake.created) != maxBurstPerTick+5 {
+		t.Errorf("after two ticks submitted %d, want %d", len(fake.created), maxBurstPerTick+5)
+	}
+}
+
+// Torrent submissions are metered separately by TorBox, so they must not eat the
+// usenet hourly create budget — otherwise a torrent burst freezes NZB submission.
+func TestSubmitterBudgetIgnoresTorrentJobs(t *testing.T) {
+	fake := &fakeTorBox{}
+	w, st, cfg := testWorkers(t, fake)
+	cfg.MaxCreatePerHour = 2
+	ctx := context.Background()
+
+	now := time.Now()
+	for i := 0; i < 5; i++ { // torrents already submitted this hour
+		id, err := st.CreateJob(ctx, &job.Job{
+			State: job.StateQueued, Protocol: "torrent",
+			NZBName: fmt.Sprintf("Tor%d", i), MediaType: "movie",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		j, _ := st.GetJob(ctx, id)
+		j.SubmittedAt = &now
+		if err := st.UpdateJob(ctx, j); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := st.CreateJob(ctx, &job.Job{
+		State: job.StatePending, Category: "sonarr", NZBName: "Nzb", NZBContent: []byte("<nzb/>"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := w.submitOnce(ctx); err != nil {
+		t.Fatalf("submitOnce: %v", err)
+	}
+	if len(fake.created) != 1 {
+		t.Errorf("usenet submissions = %d, want 1 (5 torrents must not exhaust a cap of 2)", len(fake.created))
 	}
 }
 
@@ -349,9 +416,9 @@ func TestPollerCompletedWaitsForMissingPath(t *testing.T) {
 	fake := &fakeTorBox{}
 	w, st, _ := testWorkers(t, fake)
 	ctx := context.Background()
-	oldInterval, oldTimeout := pathRetryInterval, pathRetryTimeout
-	pathRetryInterval, pathRetryTimeout = time.Millisecond, 10*time.Millisecond
-	defer func() { pathRetryInterval, pathRetryTimeout = oldInterval, oldTimeout }()
+	oldInterval, oldTimeout, oldProbe := pathRetryInterval, pathRetryTimeout, pathProbeTimeout
+	pathRetryInterval, pathRetryTimeout, pathProbeTimeout = time.Millisecond, 10*time.Millisecond, 10*time.Millisecond
+	defer func() { pathRetryInterval, pathRetryTimeout, pathProbeTimeout = oldInterval, oldTimeout, oldProbe }()
 
 	id, _ := st.CreateJob(ctx, &job.Job{State: job.StateDownloading, Category: "sonarr", NZBName: "NoDir"})
 	j, _ := st.GetJob(ctx, id)
@@ -684,9 +751,9 @@ func webdavRefreshServer(t *testing.T, hits *atomic.Int32, status int) *httptest
 // shortPathRetry shrinks the resolveStoragePath retry window for tests.
 func shortPathRetry(t *testing.T) {
 	t.Helper()
-	oldI, oldT := pathRetryInterval, pathRetryTimeout
-	pathRetryInterval, pathRetryTimeout = time.Millisecond, 5*time.Millisecond
-	t.Cleanup(func() { pathRetryInterval, pathRetryTimeout = oldI, oldT })
+	oldI, oldT, oldP := pathRetryInterval, pathRetryTimeout, pathProbeTimeout
+	pathRetryInterval, pathRetryTimeout, pathProbeTimeout = time.Millisecond, 5*time.Millisecond, 5*time.Millisecond
+	t.Cleanup(func() { pathRetryInterval, pathRetryTimeout, pathProbeTimeout = oldI, oldT, oldP })
 }
 
 func TestPollerRefreshesWebDAVWhenAllFinished(t *testing.T) {
@@ -1268,11 +1335,13 @@ func TestSubmitterRespectsAccountCooldown(t *testing.T) {
 	}
 }
 
-func TestSubmitterHourlyCapLimitsPerTick(t *testing.T) {
+// A small backlog well under the hourly headroom goes out in a single tick.
+// Pacing used to be derived from the poll interval, which pinned the default
+// deployment to one create per minute and made adding downloads feel stalled.
+func TestSubmitterTickUsesHourlyHeadroomNotPollInterval(t *testing.T) {
 	fake := &fakeTorBox{}
 	w, st, _ := testWorkers(t, fake)
 	ctx := context.Background()
-	// 1-minute poll, cap 60/hr → at most 1 submission per tick (smooth pacing).
 	_ = w.set.Set(ctx, settings.KeyMaxCreatePerHour, "60")
 	for i := 0; i < 5; i++ {
 		st.CreateJob(ctx, &job.Job{State: job.StatePending, Category: "sonarr", NZBName: "Rel", NZBContent: []byte("<nzb/>")})
@@ -1280,8 +1349,9 @@ func TestSubmitterHourlyCapLimitsPerTick(t *testing.T) {
 	if err := w.submitOnce(ctx); err != nil {
 		t.Fatalf("submitOnce: %v", err)
 	}
-	if len(fake.created) != 1 {
-		t.Errorf("expected 1 submission this tick (60/hr over 1m ticks), got %d", len(fake.created))
+	if len(fake.created) != 5 {
+		t.Errorf("expected all 5 submissions this tick (headroom 60, burst cap %d), got %d",
+			maxBurstPerTick, len(fake.created))
 	}
 }
 

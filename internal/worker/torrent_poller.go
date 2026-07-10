@@ -113,7 +113,7 @@ func (w *Workers) reconcileTorrent(ctx context.Context, j *job.Job, rec torbox.T
 	j.ETASeconds = rec.ETASeconds()
 
 	if rec.DownloadFinished && rec.DownloadPresent {
-		sourceDir, err := w.resolveStoragePathIn(ctx, w.set.TorrentPath(), rec.Name)
+		sourceDir, err := w.resolveStoragePathIn(ctx, w.set.TorrentPath(), rec.Name, pathProbeTimeout)
 		if err != nil {
 			log.Debug("waiting for torrent webdav path", "error", err)
 			if uerr := w.store.UpdateJob(ctx, j); uerr != nil {

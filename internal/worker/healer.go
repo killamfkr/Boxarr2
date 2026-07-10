@@ -88,7 +88,7 @@ func (w *Workers) healReconcileOnce(ctx context.Context) error {
 // agnostic: callers pass UsenetPath() or TorrentPath().
 func (w *Workers) finishHealAt(ctx context.Context, j *job.Job, relName, mountBase string) {
 	log := w.logger.With("job_id", j.ID, "torbox_id", j.TorBoxID)
-	newReleaseDir, err := w.resolveStoragePathIn(ctx, mountBase, relName)
+	newReleaseDir, err := w.resolveStoragePathIn(ctx, mountBase, relName, pathRetryTimeout)
 	if err != nil {
 		log.Debug("heal: waiting for webdav path", "error", err)
 		return // retry next tick

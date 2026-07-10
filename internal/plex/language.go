@@ -18,21 +18,33 @@ var langAliases = map[string][]string{
 }
 
 // langMatch reports whether a stream is in the wanted language (a 2-letter code).
-// Plex emits languageCode as de/deu/ger or en/eng, so match loosely; unknown
-// codes fall back to a prefix/name match.
+// Plex emits languageCode as de/deu/ger or en/eng and language as a display name,
+// so both are compared against a known alias set.
+//
+// Matching is exact on purpose. A substring test on the display name made "de"
+// match "Undetermined" and "Modern Greek", and "en" match "French"; a prefix test
+// on the code made "ja" match "jav" (Javanese). Plex tags untagged audio as
+// und/"Undetermined" routinely, so a loose match let any untagged track satisfy a
+// required language — suppressing the language-missing flag and the re-grab, and
+// pinning an unknown track as the default audio.
 func langMatch(s Stream, want string) bool {
-	want = strings.ToLower(want)
-	code := strings.ToLower(s.LanguageCode)
-	name := strings.ToLower(s.Language)
+	want = strings.ToLower(strings.TrimSpace(want))
+	if want == "" {
+		return false
+	}
+	code := strings.ToLower(strings.TrimSpace(s.LanguageCode))
+	name := strings.ToLower(strings.TrimSpace(s.Language))
 	if al, ok := langAliases[want]; ok {
 		for _, a := range al {
-			if code == a || strings.Contains(name, a) {
+			if code == a || name == a {
 				return true
 			}
 		}
 		return false
 	}
-	return code == want || strings.HasPrefix(code, want) || strings.Contains(name, want)
+	// Unknown 2-letter code: accept the code itself, its common 3-letter forms,
+	// or an exact display-name match.
+	return code == want || name == want || threeToTwo[code] == want
 }
 
 // threeToTwo maps common 3-letter language codes to 2-letter for the knowledge base.

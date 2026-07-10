@@ -125,3 +125,33 @@ func TestLanguageSatisfiedMulti(t *testing.T) {
 		t.Error("MULTi release must satisfy ranked [DE] (wildcard)")
 	}
 }
+
+// A required language is the user's strongest preference, so it must lead the
+// ideal list. The shipped default is required=DE, preferred=EN; returning only
+// the preferred list made the goal "English", which skipped German releases and
+// re-searched German imports forever.
+func TestIdealLangsUnionsRequiredFirst(t *testing.T) {
+	got := idealLangs(selection.Config{
+		RequiredLanguages:  []string{"DE"},
+		PreferredLanguages: []string{"EN"},
+	})
+	if len(got) != 2 || got[0] != "DE" || got[1] != "EN" {
+		t.Fatalf("idealLangs(req=DE, pref=EN) = %v, want [DE EN]", got)
+	}
+
+	if got := idealLangs(selection.Config{RequiredLanguages: []string{"DE"}}); len(got) != 1 || got[0] != "DE" {
+		t.Errorf("required only = %v, want [DE]", got)
+	}
+	if got := idealLangs(selection.Config{PreferredLanguages: []string{"EN"}}); len(got) != 1 || got[0] != "EN" {
+		t.Errorf("preferred only = %v, want [EN]", got)
+	}
+	// De-duplicated, and an empty config stays empty (callers guard on len==0).
+	if got := idealLangs(selection.Config{
+		RequiredLanguages: []string{"DE"}, PreferredLanguages: []string{"DE", "EN"},
+	}); len(got) != 2 || got[0] != "DE" || got[1] != "EN" {
+		t.Errorf("dedup = %v, want [DE EN]", got)
+	}
+	if got := idealLangs(selection.Config{}); len(got) != 0 {
+		t.Errorf("empty = %v, want []", got)
+	}
+}

@@ -19,7 +19,7 @@ import (
 func (w *Workers) persistRateLimit(ctx context.Context, cooldown time.Duration) {
 	until := time.Now().Add(cooldown)
 	_ = w.set.Set(ctx, settings.KeyTorBoxCooldownUntil, until.UTC().Format(time.RFC3339))
-	hour, _ := w.store.CountJobsSubmittedSince(ctx, time.Now().Add(-time.Hour))
+	hour, _ := w.store.CountJobsSubmittedSince(ctx, time.Now().Add(-time.Hour), "usenet")
 	_ = w.store.RecordLimitEvent(ctx, "rate_limit",
 		fmt.Sprintf("rate-limited after %d grabs in the last hour; cooldown %s", hour, cooldown.Round(time.Second)))
 }
@@ -79,13 +79,16 @@ func (w *Workers) submitOnce(ctx context.Context) error {
 	// so we never trip its account cooldown. budget < 0 means "no cap configured".
 	budget := -1
 	if cap := w.set.MaxCreatePerHour(); cap > 0 {
-		hour, _ := w.store.CountJobsSubmittedSince(ctx, time.Now().Add(-time.Hour))
+		hour, _ := w.store.CountJobsSubmittedSince(ctx, time.Now().Add(-time.Hour), "usenet")
 		if int(hour) >= cap {
 			return nil // rolling hourly ceiling reached; a later tick resumes as grabs age out
 		}
+		// The rolling headroom above already enforces the hourly cap on its own.
+		// maxBurstPerTick only smooths the shape of a backlog drain so we don't
+		// fire a whole hour's worth of creates into TorBox's short-window limiter.
 		budget = cap - int(hour)
-		if perTick := perTickBudget(cap, w.set.PollInterval()); perTick < budget {
-			budget = perTick // spread the hourly budget across ticks instead of bursting
+		if budget > maxBurstPerTick {
+			budget = maxBurstPerTick
 		}
 	}
 
@@ -127,6 +130,12 @@ func (w *Workers) submitOnce(ctx context.Context) error {
 			w.submitBackoffUntil = time.Now().Add(cooldown)
 			return nil
 		}
+		if j.State != job.StateQueued {
+			// Permanently failed: it never reached TorBox, so it must not spend
+			// the create budget — a run of poison NZBs would otherwise consume
+			// the tick without a single real submission.
+			continue
+		}
 		submitted++
 		if budget >= 0 && submitted >= budget {
 			return nil // hit this tick's pacing budget; the next tick continues draining
@@ -135,19 +144,13 @@ func (w *Workers) submitOnce(ctx context.Context) error {
 	return nil
 }
 
-// perTickBudget spreads an hourly create cap across submitter ticks so a backlog
-// drains at a steady rate instead of bursting the whole hour's budget at once
-// (which is what trips TorBox's rate limit + account cooldown). At least 1/tick.
-func perTickBudget(capPerHour int, poll time.Duration) int {
-	if poll <= 0 {
-		return capPerHour
-	}
-	n := int(int64(capPerHour) * int64(poll) / int64(time.Hour))
-	if n < 1 {
-		n = 1
-	}
-	return n
-}
+// maxBurstPerTick bounds how many creates one submitter tick may fire. It exists
+// only to keep a backlog drain from hitting TorBox's short-window limiter in a
+// single burst; the rolling hourly headroom in submitOnce is what actually
+// enforces MaxCreatePerHour. Deriving this from the poll interval instead (the
+// previous behaviour) pinned the default deployment at one create per minute,
+// so a 20-item backlog took 20 minutes to reach TorBox.
+const maxBurstPerTick = 10
 
 // torboxAccountCooldown returns the TorBox account's cooldown end time when it is
 // currently in cooldown (per /user/me), or the zero time otherwise. A failed

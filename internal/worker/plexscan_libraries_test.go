@@ -76,3 +76,44 @@ func TestScanPlexLibrariesDedupesSharedSection(t *testing.T) {
 		t.Errorf("expected 2 distinct section scans, got %v", fake.sections)
 	}
 }
+
+// pathScanner records partial scans and reports one Plex-side location.
+type pathScanner struct {
+	fakeScanner
+	locs  []string
+	paths []string
+}
+
+func (p *pathScanner) SectionLocations(context.Context, string) ([]string, error) {
+	return p.locs, nil
+}
+func (p *pathScanner) ScanPath(_ context.Context, _ string, path string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.paths = append(p.paths, path)
+	return nil
+}
+
+// With no dedicated anime section, anime imports scan the TV section. The remap
+// must therefore be computed against the TV root — otherwise the anime path
+// component is dropped and Plex silently no-ops on a folder it doesn't know,
+// so the import never surfaces in the library.
+func TestMaybePlexScanAnimeFallsBackToTVSectionRoot(t *testing.T) {
+	fake := &pathScanner{locs: []string{"/mnt/smedia/tv"}}
+	w, _, _ := testWorkers(t, &fakeTorBox{})
+	w.SetPlex(fake)
+	ctx := context.Background()
+	_ = w.set.Set(ctx, settings.KeyPlexURL, "http://plex:32400")
+	_ = w.set.Set(ctx, settings.KeyPlexToken, "tok")
+	_ = w.set.Set(ctx, settings.KeyPlexTVSection, "13")
+	_ = w.set.Set(ctx, settings.KeyPlexAnimeSection, "") // no anime section
+	_ = w.set.Set(ctx, settings.KeyTVLibraryRoot, "/mnt/library/tv")
+	_ = w.set.Set(ctx, settings.KeyAnimeLibraryRoot, "/mnt/library/tv/anime")
+
+	w.maybePlexScan(ctx, "/mnt/library/tv/anime/Show/Season 01", "anime")
+
+	want := "/mnt/smedia/tv/anime/Show/Season 01"
+	if len(fake.paths) != 1 || fake.paths[0] != want {
+		t.Errorf("partial scan paths = %v, want [%s] (sections=%v)", fake.paths, want, fake.sections)
+	}
+}

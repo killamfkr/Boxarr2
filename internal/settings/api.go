@@ -96,7 +96,10 @@ func (s *Store) EffectiveNonSecret() map[string]string {
 		KeyMaxActiveDownloads:   itoa(s.MaxActiveDownloads()),
 		KeyMaxCreatePerHour:     itoa(s.MaxCreatePerHour()),
 		KeyMaxTorrentPerMin:     itoa(s.MaxTorrentPerMin()),
-		KeySeerrAPIKeys:         strings.Join(s.SeerrAPIKeys(), ","),
+		// KeySeerrAPIKeys is deliberately absent: it is in secretKeys, and these are
+		// the live credentials that authenticate /sonarr/api/v3 and /radarr/api/v3.
+		// Emitting them here handed them to any caller of GET /api/v1/settings —
+		// unauthenticated on an install with no api.key set.
 	}
 	c := s.SelectionConfig()
 	for k, v := range map[string]string{

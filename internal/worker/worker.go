@@ -3,8 +3,10 @@ package worker
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
+	"runtime/debug"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -210,6 +212,19 @@ func (w *Workers) LoopSchedule() []map[string]any {
 	return out
 }
 
+// runIteration invokes one loop body, converting a panic into an error. A worker
+// panic would otherwise kill the process: every loop shares the program, so one
+// nil deref in (say) the importer would take down the HTTP server and all other
+// loops. Recovering keeps the remaining loops ticking and surfaces the stack.
+func (w *Workers) runIteration(ctx context.Context, fn func(context.Context) error) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("panic: %v\n%s", r, debug.Stack())
+		}
+	}()
+	return fn(ctx)
+}
+
 // loop runs fn immediately, then every interval, until ctx is cancelled.
 func (w *Workers) loop(ctx context.Context, name string, interval time.Duration, fn func(context.Context) error) {
 	if interval <= 0 {
@@ -218,7 +233,7 @@ func (w *Workers) loop(ctx context.Context, name string, interval time.Duration,
 	t := time.NewTicker(interval)
 	defer t.Stop()
 	for {
-		if err := fn(ctx); err != nil && ctx.Err() == nil {
+		if err := w.runIteration(ctx, fn); err != nil && ctx.Err() == nil {
 			w.logger.Error("worker iteration failed", "worker", name, "error", err)
 		}
 		w.loopMu.Lock()

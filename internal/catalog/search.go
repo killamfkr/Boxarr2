@@ -13,6 +13,7 @@ import (
 	"github.com/radaiko/boxarr/internal/job"
 	"github.com/radaiko/boxarr/internal/media"
 	"github.com/radaiko/boxarr/internal/prowlarr"
+	"github.com/radaiko/boxarr/internal/release"
 	"github.com/radaiko/boxarr/internal/selection"
 	"github.com/radaiko/boxarr/internal/settings"
 )
@@ -183,10 +184,7 @@ func (s *Service) pickBest(ctx context.Context, results []prowlarr.ReleaseResour
 		if blocked[rr.Title] {
 			continue
 		}
-		sc := cfg.Score(selection.Release{
-			Title: rr.Title, Protocol: rr.Protocol, Size: rr.Size,
-			Seeders: rr.Seeders, Grabs: rr.Grabs, IndexerFlags: rr.IndexerFlags,
-		})
+		sc := cfg.Score(scoreRelease(rr))
 		if sc < cfg.MinScore {
 			continue
 		}
@@ -202,6 +200,26 @@ func (s *Service) pickBest(ctx context.Context, results []prowlarr.ReleaseResour
 		}
 	}
 	return cands[0].rr, true // all known-bad — fall back to the highest score
+}
+
+// scoreRelease builds the selection.Release the scorer sees from a Prowlarr
+// result. The resolution/quality/group/proper fields come only from parsing the
+// title — omitting them (the previous behaviour) left the two heaviest weights,
+// WeightResolution and WeightQuality, contributing 0, so auto-grab picked by size
+// and seeders alone and could take a 480p release over a 2160p one. Cached is left
+// false here: the catalog service has no TorBox client to run a checkcached batch,
+// so uncached torrents score one tier low in the automatic path (the manual-search
+// UI, which does have the client, sets it). Mirrors api/v1/search.go's inline build.
+func scoreRelease(rr prowlarr.ReleaseResource) selection.Release {
+	r := selection.Release{
+		Title: rr.Title, Protocol: rr.Protocol, Size: rr.Size,
+		Seeders: rr.Seeders, Grabs: rr.Grabs, IndexerFlags: rr.IndexerFlags,
+	}
+	if p, err := release.ParseRelease(rr.Title); err == nil && p != nil {
+		r.Resolution, r.Quality, r.Group = p.Resolution, p.Quality, p.Group
+		r.Proper, r.Repack = p.Proper, p.Repack
+	}
+	return r
 }
 
 // verifiedLacksLang reports whether the KB has recorded this release's real

@@ -250,9 +250,14 @@ func (w *Workers) syncMediaFromJob(ctx context.Context, j *job.Job) {
 }
 
 // pathRetryInterval and pathRetryTimeout govern WebDAV listing-lag tolerance.
+// pathProbeTimeout is the much shorter budget used by the pollers: they run on
+// every tick and already re-check an unsurfaced path on the next one, so waiting
+// out the full pathRetryTimeout inside the poll loop buys nothing and blocks
+// every later job in the same sequential pass.
 var (
 	pathRetryInterval = time.Second
 	pathRetryTimeout  = 30 * time.Second
+	pathProbeTimeout  = 2 * time.Second
 )
 
 // resolveStoragePath returns the verified host path for a completed download.
@@ -260,20 +265,22 @@ var (
 // path, named exactly as the download (rec.Name). It polls the filesystem
 // because the WebDAV listing can lag TorBox's completion flag.
 func (w *Workers) resolveStoragePath(ctx context.Context, name string) (string, error) {
-	return w.resolveStoragePathIn(ctx, w.set.UsenetPath(), name)
+	return w.resolveStoragePathIn(ctx, w.set.UsenetPath(), name, pathProbeTimeout)
 }
 
 // resolveStoragePathIn is resolveStoragePath against an explicit mount base
-// (UsenetPath for usenet, TorrentPath for torrents).
-func (w *Workers) resolveStoragePathIn(ctx context.Context, base, name string) (string, error) {
+// (UsenetPath for usenet, TorrentPath for torrents). timeout bounds how long it
+// waits for the path to surface; callers that retry on a later tick pass a short
+// probe budget, one-shot callers (the healer) pass the full tolerance.
+func (w *Workers) resolveStoragePathIn(ctx context.Context, base, name string, timeout time.Duration) (string, error) {
 	expected := filepath.Join(base, name)
-	deadline := time.Now().Add(pathRetryTimeout)
+	deadline := time.Now().Add(timeout)
 	for {
 		if info, err := os.Stat(expected); err == nil && info.IsDir() {
 			return expected, nil
 		}
 		if time.Now().After(deadline) {
-			return "", fmt.Errorf("path %q not present after %s", expected, pathRetryTimeout)
+			return "", fmt.Errorf("path %q not present after %s", expected, timeout)
 		}
 		select {
 		case <-ctx.Done():

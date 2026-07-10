@@ -174,13 +174,26 @@ func (s *Service) tryUpgradeEpisode(ctx context.Context, sr *media.Series, ep *m
 	}
 }
 
-// idealLangs is the language goal for a type from settings: the preferred
-// languages, or the required ones when no preferred list is set.
+// idealLangs is the language goal for a type from settings: the de-duplicated
+// union of required + preferred, required first. A required language is the
+// user's strongest preference, so it must lead — callers that don't set
+// RequireAny test only ideal[0]. Returning PreferredLanguages alone (the previous
+// behaviour) made the shipped default of required=DE, preferred=EN mean "the goal
+// is English": German-only releases were judged to lack the wanted language and
+// skipped, and a German import never counted as satisfied, so it re-searched
+// forever. Mirrors settings.wantedLanguages.
 func idealLangs(cfg selection.Config) []string {
-	if len(cfg.PreferredLanguages) > 0 {
-		return cfg.PreferredLanguages
+	seen := map[string]bool{}
+	var out []string
+	for _, list := range [][]string{cfg.RequiredLanguages, cfg.PreferredLanguages} {
+		for _, l := range list {
+			if l != "" && !seen[l] {
+				seen[l] = true
+				out = append(out, l)
+			}
+		}
 	}
-	return cfg.RequiredLanguages
+	return out
 }
 
 // shouldGrabUpgrade decides whether to replace current with candidate. The

@@ -11,6 +11,7 @@ import (
 
 	"github.com/radaiko/boxarr/internal/job"
 	"github.com/radaiko/boxarr/internal/prowlarr"
+	"github.com/radaiko/boxarr/internal/release"
 	"github.com/radaiko/boxarr/internal/selection"
 	"github.com/radaiko/boxarr/internal/torbox"
 )
@@ -148,10 +149,18 @@ func (w *Workers) healQuery(ctx context.Context, j *job.Job) (string, []int) {
 func pickBestRelease(cfg selection.Config, results []prowlarr.ReleaseResource) (prowlarr.ReleaseResource, bool) {
 	bestIdx, bestScore := -1, 0
 	for i, rr := range results {
-		sc := cfg.Score(selection.Release{
+		r := selection.Release{
 			Title: rr.Title, Protocol: rr.Protocol, Size: rr.Size,
 			Seeders: rr.Seeders, Grabs: rr.Grabs, IndexerFlags: rr.IndexerFlags,
-		})
+		}
+		// Resolution/quality/group drive the two heaviest score weights and come
+		// only from parsing the title; without them the healer's replacement search
+		// ranks by size+seeders alone and can pick a lower-quality re-download.
+		if p, perr := release.ParseRelease(rr.Title); perr == nil && p != nil {
+			r.Resolution, r.Quality, r.Group = p.Resolution, p.Quality, p.Group
+			r.Proper, r.Repack = p.Proper, p.Repack
+		}
+		sc := cfg.Score(r)
 		if sc < cfg.MinScore {
 			continue
 		}

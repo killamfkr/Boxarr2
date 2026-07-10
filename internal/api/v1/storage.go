@@ -38,10 +38,17 @@ func (h *Handler) storage(w http.ResponseWriter, r *http.Request) {
 
 	byCat, _ := h.deps.Store.WebDAVUsageByCategory(ctx)
 	// Learned limits: what Boxarr inferred + remembers from TorBox throttling.
-	now := time.Now().UTC()
-	startToday := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
-	usedToday, _ := h.deps.Store.CountJobsSubmittedSince(ctx, startToday)
-	usedLastHour, _ := h.deps.Store.CountJobsSubmittedSince(ctx, now.Add(-time.Hour))
+	// Cutoffs are local, not UTC: submitted_at is persisted as Go's local-zone
+	// String() and compared as text, so a UTC cutoff silently widens the window by
+	// the local offset. See store.CountJobsSubmittedSince.
+	now := time.Now()
+	startToday := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	// usedLastHour pairs with hourlyCap (MaxCreatePerHour), which the submitter
+	// enforces over usenet only — so it must be scoped the same way.
+	usedLastHour, _ := h.deps.Store.CountJobsSubmittedSince(ctx, now.Add(-time.Hour), "usenet")
+	// usedToday is rendered as "Grabs today", a whole-instance stat: count both
+	// protocols, or a torrent-only user stares at a permanent zero.
+	usedToday, _ := h.deps.Store.CountJobsSubmittedSince(ctx, startToday, "")
 	events, _ := h.deps.Store.ListLimitEvents(ctx, 50)
 	if events == nil {
 		events = []store.LimitEvent{}

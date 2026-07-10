@@ -6,6 +6,8 @@ package task
 
 import (
 	"context"
+	"fmt"
+	"runtime/debug"
 	"sync"
 	"time"
 )
@@ -95,14 +97,26 @@ func (m *Manager) run() {
 			return
 		case j := <-m.queue:
 			m.set(j.t, "running", "")
-			err := j.fn(m.ctx, &Run{mgr: m, t: j.t})
-			if err != nil {
+			if err := m.runJob(j); err != nil {
 				m.set(j.t, "error", err.Error())
 			} else {
 				m.set(j.t, "done", "")
 			}
 		}
 	}
+}
+
+// runJob invokes a task body, converting a panic into a task error. This is the
+// only goroutine draining m.queue, and task bodies reach arbitrary catalog/WebDAV/
+// TorBox code — an unrecovered panic there would take down the HTTP server, every
+// worker loop, and all other queued tasks along with it.
+func (m *Manager) runJob(j queued) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("task panicked: %v\n%s", r, debug.Stack())
+		}
+	}()
+	return j.fn(m.ctx, &Run{mgr: m, t: j.t})
 }
 
 func (m *Manager) setProgress(t *Task, done, total int) {

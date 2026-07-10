@@ -378,11 +378,17 @@ func (s *Store) ActiveStoragePaths(ctx context.Context) ([]string, error) {
 	return out, rows.Err()
 }
 
-// ReapImported deletes imported jobs whose updated_at is older than cutoff and
-// returns the number removed.
-func (s *Store) ReapImported(ctx context.Context, cutoff time.Time) (int64, error) {
+// ReapImported deletes imported jobs older than ttl and returns the number
+// removed. The cutoff is computed by SQLite rather than in Go: updated_at is only
+// ever written by CURRENT_TIMESTAMP (UTC, no offset), so comparing it against a
+// Go local time shifted the effective TTL by the process's UTC offset — reaping
+// hours early east of UTC and hours late west of it. DB clock vs DB clock, the
+// same way MarkWebDAVItemsBrokenNotSeenSince does it.
+func (s *Store) ReapImported(ctx context.Context, ttl time.Duration) (int64, error) {
+	modifier := fmt.Sprintf("-%d seconds", int64(ttl.Seconds()))
 	res, err := s.db.ExecContext(ctx,
-		`DELETE FROM jobs WHERE state=? AND updated_at < ?`, job.StateImported, cutoff)
+		`DELETE FROM jobs WHERE state=? AND updated_at < datetime('now', ?)`,
+		job.StateImported, modifier)
 	if err != nil {
 		return 0, fmt.Errorf("reaping imported jobs: %w", err)
 	}
@@ -434,12 +440,28 @@ func (s *Store) ListImportedSymlinks(ctx context.Context) ([]*job.ImportedSymlin
 	return out, rows.Err()
 }
 
-// CountJobsSubmittedSince counts jobs submitted to TorBox at/after t (for the
-// learned daily-grab budget).
-func (s *Store) CountJobsSubmittedSince(ctx context.Context, t time.Time) (int64, error) {
+// CountJobsSubmittedSince counts jobs submitted to TorBox at/after t. An empty
+// protocol counts every protocol; otherwise the count is scoped to that one, for
+// its rolling create budget. TorBox meters usenet and torrent creation
+// independently, so budget counts must not be pooled: a burst of torrents would
+// otherwise exhaust the usenet hourly cap and stall NZB submission.
+//
+// NOTE: t is compared as text against a column that Go writes via time.Time's
+// String() (local zone). Callers must pass a LOCAL time — a UTC cutoff widens the
+// window by the local offset.
+func (s *Store) CountJobsSubmittedSince(ctx context.Context, t time.Time, protocol string) (int64, error) {
 	var n int64
-	err := s.db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM jobs WHERE submitted_at IS NOT NULL AND submitted_at >= ?`, t).Scan(&n)
+	var err error
+	if protocol == "" {
+		err = s.db.QueryRowContext(ctx,
+			`SELECT COUNT(*) FROM jobs WHERE submitted_at IS NOT NULL AND submitted_at >= ?`,
+			t).Scan(&n)
+	} else {
+		err = s.db.QueryRowContext(ctx,
+			`SELECT COUNT(*) FROM jobs
+			  WHERE submitted_at IS NOT NULL AND submitted_at >= ? AND protocol = ?`,
+			t, protocol).Scan(&n)
+	}
 	if err != nil {
 		return 0, fmt.Errorf("counting submitted jobs: %w", err)
 	}

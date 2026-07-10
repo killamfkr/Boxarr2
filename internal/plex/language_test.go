@@ -94,3 +94,40 @@ func TestPickStreamsForNoRequiredFallsBackToPreferred(t *testing.T) {
 		t.Error("no required configured, preferred EN absent → missing")
 	}
 }
+
+// Plex tags untagged audio as und/"Undetermined". A loose substring/prefix match
+// let such a track satisfy a required language, so no language_missing flag and
+// no re-grab ever fired. These are the exact false positives that produced.
+func TestLangMatchRejectsLookalikes(t *testing.T) {
+	reject := []struct {
+		code, name, want string
+	}{
+		{"und", "Undetermined", "de"}, // "de" was a substring of "undetermined"
+		{"ell", "Modern Greek", "de"}, // ...and of "modern greek"
+		{"fre", "French", "en"},       // "en" was a substring of "french"
+		{"jav", "Javanese", "ja"},     // prefix match on the code
+		{"", "", "de"},
+	}
+	for _, c := range reject {
+		if langMatch(Stream{LanguageCode: c.code, Language: c.name}, c.want) {
+			t.Errorf("langMatch({%q,%q}, %q) = true, want false", c.code, c.name, c.want)
+		}
+	}
+
+	accept := []struct {
+		code, name, want string
+	}{
+		{"de", "German", "de"},
+		{"deu", "German", "de"},
+		{"ger", "", "de"},
+		{"", "Deutsch", "de"},
+		{"eng", "English", "en"},
+		{"jpn", "Japanese", "ja"}, // via threeToTwo, no alias entry for "ja"
+		{"ja", "", "ja"},
+	}
+	for _, c := range accept {
+		if !langMatch(Stream{LanguageCode: c.code, Language: c.name}, c.want) {
+			t.Errorf("langMatch({%q,%q}, %q) = false, want true", c.code, c.name, c.want)
+		}
+	}
+}

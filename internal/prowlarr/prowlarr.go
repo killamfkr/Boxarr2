@@ -4,6 +4,7 @@ package prowlarr
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -161,7 +162,41 @@ func (c *Client) do(ctx context.Context, path string) ([]byte, error) {
 // FlareSolverr presents for the *arr stack.
 const artifactBrowserUA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 
-var artifactHTTP = &http.Client{Timeout: 60 * time.Second}
+// artifactHTTP follows Prowlarr's redirect out to the indexer. Go's redirect
+// header-copier only strips Authorization/Cookie-family headers on a cross-host
+// hop, so X-Api-Key would otherwise ride along into a third party's access log.
+var artifactHTTP = &http.Client{
+	Timeout: 60 * time.Second,
+	CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		if len(via) >= 10 {
+			return errors.New("stopped after 10 redirects")
+		}
+		if len(via) > 0 && !strings.EqualFold(req.URL.Host, via[0].URL.Host) {
+			req.Header.Del("X-Api-Key")
+		}
+		return nil
+	},
+}
+
+// underBase reports whether rawURL lives at or beneath the Prowlarr base URL,
+// comparing scheme/host/path components rather than raw string prefixes. A bare
+// strings.HasPrefix lets an indexer-supplied "http://prowlarr:9696.evil.test/x"
+// match base "http://prowlarr:9696" and collect the API key.
+func underBase(rawURL, base string) bool {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return false
+	}
+	b, err := url.Parse(base)
+	if err != nil || b.Host == "" {
+		return false
+	}
+	if !strings.EqualFold(u.Scheme, b.Scheme) || !strings.EqualFold(u.Host, b.Host) {
+		return false
+	}
+	bp := strings.TrimRight(b.Path, "/")
+	return bp == "" || u.Path == bp || strings.HasPrefix(u.Path, bp+"/")
+}
 
 // FetchArtifact downloads a release artifact (.nzb / .torrent) from a Prowlarr
 // download URL. Prowlarr 301-redirects usenet downloads to the real indexer, which
@@ -177,7 +212,7 @@ func FetchArtifact(ctx context.Context, rawURL, prowlarrBaseURL, apiKey string) 
 	req.Header.Set("User-Agent", artifactBrowserUA)
 	req.Header.Set("Accept", "application/x-nzb,application/x-bittorrent,application/octet-stream,*/*")
 	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
-	if base := strings.TrimRight(prowlarrBaseURL, "/"); base != "" && apiKey != "" && strings.HasPrefix(rawURL, base) {
+	if base := strings.TrimRight(prowlarrBaseURL, "/"); base != "" && apiKey != "" && underBase(rawURL, base) {
 		req.Header.Set("X-Api-Key", apiKey)
 	}
 	resp, err := artifactHTTP.Do(req)
@@ -185,7 +220,12 @@ func FetchArtifact(ctx context.Context, rawURL, prowlarrBaseURL, apiKey string) 
 		return nil, err
 	}
 	defer func() { _ = resp.Body.Close() }()
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<20))
+	// A reset mid-body yields partial bytes AND an error; dropping the error ships a
+	// truncated .nzb to TorBox, which then fails for an unrelated-looking reason.
+	body, rerr := io.ReadAll(io.LimitReader(resp.Body, 64<<20))
+	if rerr != nil {
+		return nil, fmt.Errorf("reading artifact from %s: %w", rawURL, rerr)
+	}
 	// resp.Request is the final request after redirects — the host that actually
 	// served the response (Prowlarr redirects out to the indexer for NZBs).
 	finalHost := ""

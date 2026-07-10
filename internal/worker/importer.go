@@ -141,7 +141,13 @@ func (w *Workers) maybePlexScan(ctx context.Context, dir, kind string) {
 	case "anime":
 		root = w.set.AnimeLibraryRoot()
 		if section = w.set.PlexAnimeSection(); section == "" {
-			section = w.set.PlexTVSection() // fall back to the TV section
+			// No dedicated anime section: scan the TV section, and remap against
+			// the TV root so a nested anime folder keeps that path component.
+			// When the anime root is not under the TV root, plexScanTarget
+			// declines and we do a full TV section scan — slower, but it finds
+			// the file, whereas partial-scanning a path Plex doesn't know is a
+			// silent no-op.
+			section, root = w.set.PlexTVSection(), w.set.TVLibraryRoot()
 		}
 	}
 	if section == "" {
@@ -185,12 +191,25 @@ func (w *Workers) plexLocations(ctx context.Context, section string) []string {
 // Plex location); otherwise ("", false) so the caller does a full section scan.
 func plexScanTarget(dir, boxarrRoot string, plexLocs []string) (string, bool) {
 	boxarrRoot = strings.TrimRight(boxarrRoot, "/")
-	if boxarrRoot == "" || !strings.HasPrefix(dir, boxarrRoot) || len(plexLocs) == 0 {
+	dir = strings.TrimRight(dir, "/")
+	if boxarrRoot == "" || len(plexLocs) == 0 {
 		return "", false
 	}
-	rel := dir[len(boxarrRoot):] // leading "/" retained
-	for _, l := range plexLocs { // already the path Plex uses → no remap
-		if strings.TrimRight(l, "/") == boxarrRoot {
+	rel, under := relUnderRoot(dir, boxarrRoot)
+	if !under {
+		return "", false
+	}
+	// Already a path Plex uses — either the location is the root exactly, or it
+	// contains it (a nested library root on a shared mount). Either way Boxarr and
+	// Plex see the same absolute path, so hand it over unchanged. This must precede
+	// the remap branches: rebasing a nested root onto its own parent would drop the
+	// intervening components and name a folder Plex does not have.
+	for _, l := range plexLocs {
+		loc := strings.TrimRight(l, "/")
+		if loc == boxarrRoot {
+			return dir, true
+		}
+		if _, under := relUnderRoot(dir, loc); under {
 			return dir, true
 		}
 	}
@@ -202,6 +221,21 @@ func plexScanTarget(dir, boxarrRoot string, plexLocs []string) (string, bool) {
 	}
 	if len(plexLocs) == 1 { // unambiguous single location
 		return strings.TrimRight(plexLocs[0], "/") + rel, true
+	}
+	return "", false
+}
+
+// relUnderRoot reports whether dir lies at or beneath root, returning dir's path
+// relative to root with its leading "/" retained ("" when dir == root). Both
+// arguments must already have trailing slashes trimmed. The separator check is
+// what keeps a sibling that merely shares a string prefix ("/a/movies-4k" under
+// root "/a/movies") from being spliced into a corrupt Plex path.
+func relUnderRoot(dir, root string) (string, bool) {
+	if dir == root {
+		return "", true
+	}
+	if strings.HasPrefix(dir, root+"/") {
+		return dir[len(root):], true
 	}
 	return "", false
 }

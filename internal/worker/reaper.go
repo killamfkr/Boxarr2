@@ -21,7 +21,7 @@ const importedTTL = 30 * 24 * time.Hour
 // sweeps stale per-release directories out of the symlink farm.
 func (w *Workers) reapOnce(ctx context.Context) error {
 	w.detectImports(ctx)
-	n, err := w.store.ReapImported(ctx, time.Now().Add(-importedTTL))
+	n, err := w.store.ReapImported(ctx, importedTTL)
 	if err != nil {
 		return err
 	}

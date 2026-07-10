@@ -131,17 +131,39 @@ func TestActiveStoragePaths(t *testing.T) {
 	}
 }
 
+// updated_at is written only by SQLite's CURRENT_TIMESTAMP, so the test seeds it
+// in that same UTC format. Seeding it with a Go time (the old test) reproduced
+// neither the format nor the timezone, and so never exercised the comparison the
+// reaper actually performs.
 func TestReapImported(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
-	id, _ := s.CreateJob(ctx, &job.Job{State: job.StateImported, Category: "c", NZBName: "old"})
-	if _, err := s.Exec(ctx, `UPDATE jobs SET updated_at=? WHERE id=?`,
-		time.Now().Add(-48*time.Hour), id); err != nil {
+
+	oldID, _ := s.CreateJob(ctx, &job.Job{State: job.StateImported, Category: "c", NZBName: "old"})
+	freshID, _ := s.CreateJob(ctx, &job.Job{State: job.StateImported, Category: "c", NZBName: "fresh"})
+	keepID, _ := s.CreateJob(ctx, &job.Job{State: job.StateQueued, Category: "c", NZBName: "queued"})
+	if _, err := s.Exec(ctx,
+		`UPDATE jobs SET updated_at=datetime('now','-48 hours') WHERE id IN (?,?)`,
+		oldID, keepID); err != nil {
 		t.Fatal(err)
 	}
-	n, err := s.ReapImported(ctx, time.Now().Add(-24*time.Hour))
+	if _, err := s.Exec(ctx,
+		`UPDATE jobs SET updated_at=datetime('now','-1 hours') WHERE id=?`, freshID); err != nil {
+		t.Fatal(err)
+	}
+
+	n, err := s.ReapImported(ctx, 24*time.Hour)
 	if err != nil || n != 1 {
-		t.Fatalf("ReapImported: n=%d err=%v", n, err)
+		t.Fatalf("ReapImported: n=%d err=%v, want 1", n, err)
+	}
+	if j, _ := s.GetJob(ctx, oldID); j != nil {
+		t.Error("48h-old imported job survived the reaper")
+	}
+	if j, _ := s.GetJob(ctx, freshID); j == nil {
+		t.Error("1h-old imported job was reaped")
+	}
+	if j, _ := s.GetJob(ctx, keepID); j == nil {
+		t.Error("48h-old queued job was reaped; only imported jobs should be")
 	}
 }
 
