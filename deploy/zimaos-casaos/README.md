@@ -10,7 +10,7 @@ SSH into your NAS, then either clone the repo or use the one-liner:
 
 ```bash
 # One-liner (downloads install.sh + templates from GitHub main)
-curl -fsSL https://raw.githubusercontent.com/radaiko/boxarr/main/deploy/zimaos-casaos/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/killamfkr/Boxarr2/main/deploy/zimaos-casaos/install.sh | bash
 ```
 
 ```bash
