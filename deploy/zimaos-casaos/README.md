@@ -12,7 +12,7 @@ Only your **TorBox API key** is required (torbox.app → Settings → API). No W
 
 ```bash
 TORBOX_API_KEY='your-api-key' \
-  curl -fsSL https://cdn.jsdelivr.net/gh/killamfkr/Boxarr2@main/deploy/zimaos-casaos/install.sh \
+  curl -fsSL https://raw.githubusercontent.com/killamfkr/Boxarr2/main/deploy/zimaos-casaos/install.sh \
   | sudo -E bash -s -- -y
 ```
 
@@ -21,7 +21,7 @@ Use `sudo -E` so the API key survives sudo.
 ### Interactive (recommended)
 
 ```bash
-curl -fsSL https://cdn.jsdelivr.net/gh/killamfkr/Boxarr2@main/deploy/zimaos-casaos/install.sh -o /tmp/boxarr-install.sh
+curl -fsSL https://raw.githubusercontent.com/killamfkr/Boxarr2/main/deploy/zimaos-casaos/install.sh -o /tmp/boxarr-install.sh
 chmod +x /tmp/boxarr-install.sh
 sudo /tmp/boxarr-install.sh
 ```
@@ -33,7 +33,7 @@ You will be prompted for your TorBox API key only.
 ```bash
 printf 'TORBOX_API_KEY=your-api-key\n' > /tmp/boxarr.env
 chmod 600 /tmp/boxarr.env
-curl -fsSL https://cdn.jsdelivr.net/gh/killamfkr/Boxarr2@main/deploy/zimaos-casaos/install.sh -o /tmp/boxarr-install.sh
+curl -fsSL https://raw.githubusercontent.com/killamfkr/Boxarr2/main/deploy/zimaos-casaos/install.sh -o /tmp/boxarr-install.sh
 chmod +x /tmp/boxarr-install.sh
 sudo /tmp/boxarr-install.sh --env-file /tmp/boxarr.env -y
 ```

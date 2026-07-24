@@ -10,10 +10,10 @@
 #
 # One-liner (API key only — recommended):
 #   TORBOX_API_KEY=your-api-key \
-#     curl -fsSL https://cdn.jsdelivr.net/gh/killamfkr/Boxarr2@main/deploy/zimaos-casaos/install.sh | sudo -E bash -s -- -y
+#     curl -fsSL https://raw.githubusercontent.com/killamfkr/Boxarr2/main/deploy/zimaos-casaos/install.sh | sudo -E bash -s -- -y
 #
 # Interactive (recommended over SSH — download first so prompts work):
-#   curl -fsSL https://cdn.jsdelivr.net/gh/killamfkr/Boxarr2@main/deploy/zimaos-casaos/install.sh -o /tmp/boxarr-install.sh
+#   curl -fsSL https://raw.githubusercontent.com/killamfkr/Boxarr2/main/deploy/zimaos-casaos/install.sh -o /tmp/boxarr-install.sh
 #   chmod +x /tmp/boxarr-install.sh && sudo /tmp/boxarr-install.sh
 #
 # Environment (optional):
@@ -29,7 +29,8 @@
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
-VERSION="1.1.1"
+VERSION="1.1.2"
+RAW_GH="https://raw.githubusercontent.com/killamfkr/Boxarr2/main/deploy/zimaos-casaos"
 YES=false
 DOCKER_RCLONE=false
 NO_SEERR=false
@@ -108,10 +109,10 @@ resolve_bundle_dir() {
   fi
   local tmp base
   tmp="$(mktemp -d /tmp/boxarr-bundle.XXXXXX)"
-  base="${BOXARR_RAW_BASE:-https://cdn.jsdelivr.net/gh/killamfkr/Boxarr2@main/deploy/zimaos-casaos}"
+  base="${BOXARR_RAW_BASE:-${RAW_GH}}"
   log "Downloading install bundle from ${base}..."
   for f in docker-compose.yml env.example manage.sh rclone-torbox.service lib.sh; do
-    curl -fsSL "${base}/${f}?v=${VERSION}" -o "${tmp}/${f}" || die "Failed to download ${base}/${f}"
+    curl -fsSL "${base}/${f}" -o "${tmp}/${f}" || die "Failed to download ${base}/${f}"
   done
   echo "$tmp"
 }
@@ -233,12 +234,12 @@ A TorBox API key is required (torbox.app → Settings → API).
 If you used  curl ... | bash , pass the key on the same line (sudo -E keeps env vars):
 
   TORBOX_API_KEY='your-api-key' \
-    curl -fsSL https://cdn.jsdelivr.net/gh/killamfkr/Boxarr2@main/deploy/zimaos-casaos/install.sh \
+    curl -fsSL https://raw.githubusercontent.com/killamfkr/Boxarr2/main/deploy/zimaos-casaos/install.sh \
     | sudo -E bash -s -- -y
 
 Or download first for an interactive prompt (recommended):
 
-  curl -fsSL https://cdn.jsdelivr.net/gh/killamfkr/Boxarr2@main/deploy/zimaos-casaos/install.sh -o /tmp/boxarr-install.sh
+  curl -fsSL https://raw.githubusercontent.com/killamfkr/Boxarr2/main/deploy/zimaos-casaos/install.sh -o /tmp/boxarr-install.sh
   chmod +x /tmp/boxarr-install.sh
   sudo /tmp/boxarr-install.sh
 
