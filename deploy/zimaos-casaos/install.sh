@@ -240,6 +240,20 @@ elif [[ ! -d "$(dirname "$INSTALL_DIR")" ]]; then
   MANAGE_DST="${INSTALL_DIR}/manage.sh"
 fi
 
+TORBOX_WEBDAV_USER="${TORBOX_WEBDAV_USER:-}"
+TORBOX_WEBDAV_PASS="${TORBOX_WEBDAV_PASS:-}"
+if [[ -f "${ENV_FILE}" ]]; then
+  # shellcheck disable=SC1090
+  source "${ENV_FILE}"
+fi
+
+if ! webdav_creds_ready; then
+  if $YES || [[ ! -t 0 ]]; then
+    boxarr_webdav_creds_die_help
+    exit 1
+  fi
+fi
+
 step "Creating directories"
 dirs=(
   "${INSTALL_DIR}/config"
