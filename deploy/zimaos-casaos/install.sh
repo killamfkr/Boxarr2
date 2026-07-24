@@ -88,7 +88,7 @@ resolve_bundle_dir() {
   tmp="$(mktemp -d /tmp/boxarr-bundle.XXXXXX)"
   base="${BOXARR_RAW_BASE:-https://cdn.jsdelivr.net/gh/killamfkr/Boxarr2@main/deploy/zimaos-casaos}"
   log "Downloading install bundle from ${base}..."
-  for f in docker-compose.yml env.example manage.sh rclone-torbox.service; do
+  for f in docker-compose.yml env.example manage.sh rclone-torbox.service lib.sh; do
     curl -fsSL "${base}/${f}" -o "${tmp}/${f}" || die "Failed to download ${base}/${f}"
   done
   echo "$tmp"
@@ -153,17 +153,21 @@ need_cmd() {
   command -v "$1" >/dev/null 2>&1 || die "Missing required command: $1"
 }
 
-step "Preflight checks"
-need_cmd docker
-need_cmd curl
-if ! docker compose version >/dev/null 2>&1; then
-  die "Docker Compose v2 is required (docker compose)."
-fi
 if [[ "$(id -u)" -ne 0 ]]; then
   warn "Not running as root — will use sudo for systemd, FUSE, and directory setup."
   SUDO="sudo"
 else
   SUDO=""
+fi
+
+step "Preflight checks"
+need_cmd docker
+need_cmd curl
+# shellcheck source=lib.sh
+source "${BUNDLE_DIR}/lib.sh"
+if ! boxarr_ensure_compose log; then
+  boxarr_compose_die_help
+  exit 1
 fi
 
 if [[ -d /DATA ]]; then
@@ -306,8 +310,9 @@ fi
 } >"${ENV_FILE}"
 chmod 600 "${ENV_FILE}"
 
-step "Installing docker-compose.yml and manage.sh"
+step "Installing docker-compose.yml, lib.sh, and manage.sh"
 cp "${BUNDLE_DIR}/docker-compose.yml" "${COMPOSE_DST}"
+cp "${BUNDLE_DIR}/lib.sh" "${INSTALL_DIR}/lib.sh"
 cp "${BUNDLE_DIR}/manage.sh" "${MANAGE_DST}"
 chmod +x "${MANAGE_DST}"
 

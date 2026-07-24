@@ -71,6 +71,7 @@ Then map libraries to `/DATA/library/movies`, `/DATA/library/tv`, `/DATA/library
 
 | Symptom | Fix |
 |---------|-----|
+| `Docker Compose is required` | `sudo apt-get install -y docker-compose-plugin` then `docker compose version`, or re-run with `sudo bash install.sh` |
 | Empty TorBox mount | `sudo systemctl status boxarr-rclone` / `journalctl -u boxarr-rclone -n 50` |
 | Plex shows no files | Ensure both library + torbox paths are mounted in Plex; run **Scan Library Files** |
 | FUSE permission denied | Check `/etc/fuse.conf` contains `user_allow_other` |
