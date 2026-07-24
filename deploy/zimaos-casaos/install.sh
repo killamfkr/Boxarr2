@@ -29,7 +29,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
-VERSION="1.1.0"
+VERSION="1.1.1"
 YES=false
 DOCKER_RCLONE=false
 NO_SEERR=false
@@ -111,12 +111,17 @@ resolve_bundle_dir() {
   base="${BOXARR_RAW_BASE:-https://cdn.jsdelivr.net/gh/killamfkr/Boxarr2@main/deploy/zimaos-casaos}"
   log "Downloading install bundle from ${base}..."
   for f in docker-compose.yml env.example manage.sh rclone-torbox.service lib.sh; do
-    curl -fsSL "${base}/${f}" -o "${tmp}/${f}" || die "Failed to download ${base}/${f}"
+    curl -fsSL "${base}/${f}?v=${VERSION}" -o "${tmp}/${f}" || die "Failed to download ${base}/${f}"
   done
   echo "$tmp"
 }
 
 BUNDLE_DIR="$(resolve_bundle_dir)"
+
+log "Boxarr installer v${VERSION} — API key mount is the default (not WebDAV email/password)"
+
+# Accept common env var aliases from torbox.app / Boxarr compose.
+TORBOX_API_KEY="${TORBOX_API_KEY:-${TORBOX_API_TOKEN:-${BOXARR_TORBOX_API_TOKEN:-}}}"
 
 # ── Defaults tuned for CasaOS / ZimaOS ───────────────────────────────────────
 PUID="${PUID:-$(id -u)}"
@@ -132,12 +137,13 @@ SEERR_PORT="${SEERR_PORT:-5055}"
 RCLONE_REMOTE="${RCLONE_REMOTE:-torbox}"
 BOXARR_IMAGE="${BOXARR_IMAGE:-ghcr.io/radaiko/boxarr:latest}"
 MOUNT_PROVIDER="${MOUNT_PROVIDER:-auto}"
-TORBOX_API_KEY="${TORBOX_API_KEY:-}"
 TORBOX_WEBDAV_USER="${TORBOX_WEBDAV_USER:-}"
 TORBOX_WEBDAV_PASS="${TORBOX_WEBDAV_PASS:-}"
 
 if $FORCE_RCLONE_MOUNT; then
   MOUNT_PROVIDER=rclone
+elif [[ "${MOUNT_PROVIDER}" == "auto" ]]; then
+  MOUNT_PROVIDER=api
 fi
 
 if $DOCKER_RCLONE; then
@@ -206,7 +212,7 @@ resolve_mount_provider() {
         echo api
         return 0
       fi
-      if webdav_creds_ready; then
+      if $FORCE_RCLONE_MOUNT && webdav_creds_ready; then
         echo rclone
         return 0
       fi
@@ -299,18 +305,24 @@ fi
 if [[ -f "${ENV_FILE}" ]]; then
   # shellcheck disable=SC1090
   source "${ENV_FILE}"
+  TORBOX_API_KEY="${TORBOX_API_KEY:-${TORBOX_API_TOKEN:-}}"
+  if ! $FORCE_RCLONE_MOUNT && [[ "${MOUNT_PROVIDER}" == "auto" || "${MOUNT_PROVIDER}" == "api" ]]; then
+    MOUNT_PROVIDER=api
+  fi
 fi
 
 step "TorBox credentials"
-if [[ -z "${TORBOX_API_KEY}" ]]; then
-  if $YES || [[ ! -t 0 ]]; then
-    if ! webdav_creds_ready && [[ "${MOUNT_PROVIDER}" != "rclone" ]]; then
+if [[ "${MOUNT_PROVIDER}" != "rclone" ]]; then
+  if [[ -z "${TORBOX_API_KEY}" ]]; then
+    if $YES || [[ ! -t 0 ]]; then
       boxarr_mount_creds_die_help
       exit 1
     fi
-  else
     prompt TORBOX_API_KEY "TorBox API key (torbox.app → Settings → API)" "" true
   fi
+  MOUNT_PROVIDER=api
+elif [[ -z "${TORBOX_API_KEY}" ]]; then
+  warn "TORBOX_API_KEY not set — add it in Boxarr Settings after install."
 fi
 
 MOUNT_PROVIDER="$(resolve_mount_provider)"
@@ -431,6 +443,9 @@ if [[ -f "${ENV_FILE}" ]]; then
   TORBOX_API_KEY="${TORBOX_API_KEY:-}"
   TORBOX_WEBDAV_USER="${TORBOX_WEBDAV_USER:-}"
   TORBOX_WEBDAV_PASS="${TORBOX_WEBDAV_PASS:-}"
+  if ! $FORCE_RCLONE_MOUNT; then
+    MOUNT_PROVIDER=api
+  fi
 fi
 MOUNT_PROVIDER="$(resolve_mount_provider)"
 if [[ -f "${ENV_FILE}" ]] && ! $YES; then
