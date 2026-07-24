@@ -70,8 +70,9 @@ network. This mirrors [`deploy/docker-compose.yml`](deploy/docker-compose.yml).
 **CasaOS / ZimaOS:** use the dedicated installer — [`deploy/zimaos-casaos/install.sh`](deploy/zimaos-casaos/install.sh). Download the script first (piped `curl | bash` cannot prompt for TorBox WebDAV credentials):
 
 ```bash
-curl -fsSL https://cdn.jsdelivr.net/gh/killamfkr/Boxarr2@main/deploy/zimaos-casaos/install.sh -o /tmp/boxarr-install.sh
-chmod +x /tmp/boxarr-install.sh && sudo /tmp/boxarr-install.sh
+TORBOX_API_KEY='your-api-key' \
+  curl -fsSL https://cdn.jsdelivr.net/gh/killamfkr/Boxarr2@main/deploy/zimaos-casaos/install.sh \
+  | sudo -E bash -s -- -y
 ```
 
 ```yaml

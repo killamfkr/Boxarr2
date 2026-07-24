@@ -91,7 +91,9 @@ boxarr_compose() {
   local env_file="$1" compose_file="$2"
   shift 2
   local profiles=()
-  if [[ "${RCLONE_MODE:-host}" == "docker" ]]; then
+  if [[ "${MOUNT_PROVIDER:-api}" == "api" ]]; then
+    profiles+=(--profile api-mount)
+  elif [[ "${RCLONE_MODE:-host}" == "docker" ]]; then
     profiles+=(--profile docker-rclone)
   fi
   if [[ "${WITH_SEERR:-true}" == "true" ]]; then
