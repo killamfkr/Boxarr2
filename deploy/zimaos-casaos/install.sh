@@ -9,7 +9,7 @@
 #   sudo bash deploy/zimaos-casaos/install.sh
 #
 # One-liner (from GitHub main):
-#   curl -fsSL https://raw.githubusercontent.com/radaiko/boxarr/main/deploy/zimaos-casaos/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/killamfkr/Boxarr2/main/deploy/zimaos-casaos/install.sh | bash
 #
 # Non-interactive:
 #   TORBOX_WEBDAV_USER=you@example.com TORBOX_WEBDAV_PASS=secret bash install.sh -y

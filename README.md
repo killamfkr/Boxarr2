@@ -70,7 +70,7 @@ network. This mirrors [`deploy/docker-compose.yml`](deploy/docker-compose.yml).
 **CasaOS / ZimaOS:** use the dedicated installer — [`deploy/zimaos-casaos/install.sh`](deploy/zimaos-casaos/install.sh) — which sets `/DATA` paths, host rclone via systemd, and a `manage.sh` helper. Run over SSH; do not use the app GUI for this stack.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/radaiko/boxarr/main/deploy/zimaos-casaos/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/killamfkr/Boxarr2/main/deploy/zimaos-casaos/install.sh | bash
 ```
 
 ```yaml
