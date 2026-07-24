@@ -5,6 +5,7 @@ set -euo pipefail
 INSTALL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENV_FILE="${INSTALL_DIR}/.env"
 COMPOSE_FILE="${INSTALL_DIR}/docker-compose.yml"
+LIB_FILE="${INSTALL_DIR}/lib.sh"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -16,21 +17,22 @@ log() { echo -e "${GREEN}[boxarr]${NC} $*" >&2; }
 warn() { echo -e "${YELLOW}[boxarr]${NC} $*" >&2; }
 die() { echo -e "${RED}[boxarr]${NC} $*" >&2; exit 1; }
 
+[[ -f "${LIB_FILE}" ]] || die "Missing ${LIB_FILE}. Re-run install.sh."
+# shellcheck source=lib.sh
+source "${LIB_FILE}"
 # shellcheck disable=SC1091
 [[ -f "${ENV_FILE}" ]] && source "${ENV_FILE}"
 
 : "${BOXARR_TORBOX_MOUNT:=/DATA/torbox}"
 : "${RCLONE_MODE:=host}"
 
+if ! boxarr_detect_compose; then
+  boxarr_compose_die_help
+  exit 1
+fi
+
 compose() {
-  local profiles=()
-  if [[ "${RCLONE_MODE}" == "docker" ]]; then
-    profiles+=(--profile docker-rclone)
-  fi
-  if [[ "${WITH_SEERR:-true}" == "true" ]]; then
-    profiles+=(--profile seerr)
-  fi
-  docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" "${profiles[@]}" "$@"
+  boxarr_compose "${ENV_FILE}" "${COMPOSE_FILE}" "$@"
 }
 
 ensure_mount_propagation() {
@@ -80,6 +82,7 @@ Commands:
   health      Quick reachability check
   help        Show this help
 
+Compose: ${BOXARR_COMPOSE[*]}
 Install dir: ${INSTALL_DIR}
 EOF
 }
@@ -134,7 +137,7 @@ case "${cmd}" in
         fi
       fi
     else
-      compose --profile docker-rclone ps rclone
+      "${BOXARR_COMPOSE[@]}" --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" --profile docker-rclone ps rclone
     fi
     ;;
   health)
