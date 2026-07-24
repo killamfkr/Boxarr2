@@ -29,8 +29,9 @@
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
-VERSION="1.1.2"
+VERSION="1.1.3"
 RAW_GH="https://raw.githubusercontent.com/killamfkr/Boxarr2/main/deploy/zimaos-casaos"
+API_KEY_ARG=""
 YES=false
 DOCKER_RCLONE=false
 NO_SEERR=false
@@ -56,8 +57,9 @@ Boxarr CasaOS/ZimaOS installer v${VERSION}
 Usage: install.sh [options]
 
 Options:
-  -y, --yes           Non-interactive (requires TORBOX_API_KEY or WebDAV creds)
-  --env-file PATH     Load secrets (TORBOX_API_KEY, etc.) from a file
+  --api-key KEY       TorBox API key (torbox.app → Settings → API)
+  -y, --yes           Non-interactive (requires --api-key, TORBOX_API_KEY, or --env-file)
+  --env-file PATH     Load secrets (TORBOX_API_KEY=..., etc.) from a file
   --rclone-mount      Use rclone WebDAV instead of API-key mount (needs email+password)
   --docker-rclone     Run rclone inside Docker instead of on the host (less reliable)
   --no-seerr          Skip the Seerr container
@@ -73,6 +75,11 @@ EOF
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -y|--yes) YES=true; shift ;;
+    --api-key)
+      [[ $# -ge 2 ]] || die "--api-key requires a value"
+      API_KEY_ARG="$2"
+      shift 2
+      ;;
     --env-file)
       [[ $# -ge 2 ]] || die "--env-file requires a path"
       ENV_SECRETS="$2"
@@ -122,7 +129,18 @@ BUNDLE_DIR="$(resolve_bundle_dir)"
 log "Boxarr installer v${VERSION} — API key mount is the default (not WebDAV email/password)"
 
 # Accept common env var aliases from torbox.app / Boxarr compose.
-TORBOX_API_KEY="${TORBOX_API_KEY:-${TORBOX_API_TOKEN:-${BOXARR_TORBOX_API_TOKEN:-}}}"
+TORBOX_API_KEY="${API_KEY_ARG:-${TORBOX_API_KEY:-${TORBOX_API_TOKEN:-${BOXARR_TORBOX_API_TOKEN:-}}}}"
+
+read_api_key_from_tty() {
+  local key=""
+  if [[ -n "${TORBOX_API_KEY}" || ! -r /dev/tty ]]; then
+    return 0
+  fi
+  echo -n "TorBox API key (torbox.app → Settings → API): " >/dev/tty
+  IFS= read -rs key </dev/tty || true
+  echo "" >/dev/tty
+  TORBOX_API_KEY="${key}"
+}
 
 # ── Defaults tuned for CasaOS / ZimaOS ───────────────────────────────────────
 PUID="${PUID:-$(id -u)}"
@@ -227,32 +245,25 @@ resolve_mount_provider() {
 }
 
 boxarr_mount_creds_die_help() {
-  cat <<'EOF' >&2
+  cat <<EOF >&2
 
-A TorBox API key is required (torbox.app → Settings → API).
+TorBox API key is required (torbox.app → Settings → API).
 
-If you used  curl ... | bash , pass the key on the same line (sudo -E keeps env vars):
+Quick fix — download, then run (prompts for key; no -y flag):
 
-  TORBOX_API_KEY='your-api-key' \
-    curl -fsSL https://raw.githubusercontent.com/killamfkr/Boxarr2/main/deploy/zimaos-casaos/install.sh \
-    | sudo -E bash -s -- -y
+  curl -fsSL ${RAW_GH}/install.sh -o /tmp/boxarr-install.sh && chmod +x /tmp/boxarr-install.sh && sudo /tmp/boxarr-install.sh
 
-Or download first for an interactive prompt (recommended):
+Or pass the key on the command line (variable name is TORBOX_API_KEY with underscores):
 
-  curl -fsSL https://raw.githubusercontent.com/killamfkr/Boxarr2/main/deploy/zimaos-casaos/install.sh -o /tmp/boxarr-install.sh
-  chmod +x /tmp/boxarr-install.sh
-  sudo /tmp/boxarr-install.sh
+  sudo /tmp/boxarr-install.sh --api-key 'PASTE-KEY-HERE' -y
+
+One-liner (set TORBOX_API_KEY before curl; sudo -E keeps env vars):
+
+  TORBOX_API_KEY='PASTE-KEY-HERE' curl -fsSL ${RAW_GH}/install.sh | sudo -E bash -s -- -y
 
 Secrets file:
 
-  printf 'TORBOX_API_KEY=your-api-key\n' > /tmp/boxarr.env
-  chmod 600 /tmp/boxarr.env
-  sudo /tmp/boxarr-install.sh --env-file /tmp/boxarr.env -y
-
-To use rclone WebDAV instead (email + password, not API key), add --rclone-mount:
-
-  TORBOX_WEBDAV_USER='your@email.com' TORBOX_WEBDAV_PASS='your-password' \
-    sudo /tmp/boxarr-install.sh --rclone-mount -y
+  printf 'TORBOX_API_KEY=PASTE-KEY-HERE\n' > /tmp/boxarr.env && chmod 600 /tmp/boxarr.env && sudo /tmp/boxarr-install.sh --env-file /tmp/boxarr.env -y
 EOF
 }
 
@@ -315,11 +326,19 @@ fi
 step "TorBox credentials"
 if [[ "${MOUNT_PROVIDER}" != "rclone" ]]; then
   if [[ -z "${TORBOX_API_KEY}" ]]; then
-    if $YES || [[ ! -t 0 ]]; then
+    read_api_key_from_tty
+  fi
+  if [[ -z "${TORBOX_API_KEY}" ]]; then
+    if $YES; then
       boxarr_mount_creds_die_help
       exit 1
     fi
-    prompt TORBOX_API_KEY "TorBox API key (torbox.app → Settings → API)" "" true
+    if [[ -t 0 ]]; then
+      prompt TORBOX_API_KEY "TorBox API key (torbox.app → Settings → API)" "" true
+    else
+      boxarr_mount_creds_die_help
+      exit 1
+    fi
   fi
   MOUNT_PROVIDER=api
 elif [[ -z "${TORBOX_API_KEY}" ]]; then
