@@ -1,0 +1,21 @@
+[Unit]
+Description=Boxarr TorBox WebDAV mount (host rclone)
+Documentation=https://github.com/radaiko/boxarr/blob/main/deploy/zimaos-casaos/README.md
+After=network-online.target local-fs.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=-__ENV_FILE__
+User=__PUID__
+Group=__PGID__
+ExecStartPre=/bin/bash -c 'findmnt -n "$BOXARR_TORBOX_MOUNT" >/dev/null 2>&1 || mount --bind "$BOXARR_TORBOX_MOUNT" "$BOXARR_TORBOX_MOUNT"'
+ExecStartPre=/bin/mount --make-rshared __TORBOX_MOUNT__
+ExecStart=__RCLONE_BIN__ mount __RCLONE_REMOTE__: __TORBOX_MOUNT__ --config __RCLONE_CONFIG__ --allow-other --allow-non-empty --dir-cache-time 1h --vfs-cache-mode full --vfs-cache-max-size 50G --vfs-cache-max-age 168h --vfs-read-ahead 256M --vfs-read-chunk-size 32M --vfs-read-chunk-size-limit 1G --buffer-size 64M --vfs-fast-fingerprint --no-checksum --no-modtime --transfers 4 --checkers 2 --tpslimit 5 --tpslimit-burst 5 --low-level-retries 3 --attr-timeout 9999h --umask 002 --uid __PUID__ --gid __PGID__ --cache-dir __RCLONE_CACHE__ --log-level INFO
+ExecStop=/bin/bash -c 'fusermount -uz "__TORBOX_MOUNT__" 2>/dev/null || umount -l "__TORBOX_MOUNT__" 2>/dev/null || true'
+Restart=on-failure
+RestartSec=10
+TimeoutStartSec=120
+
+[Install]
+WantedBy=multi-user.target
