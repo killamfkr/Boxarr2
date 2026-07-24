@@ -25,6 +25,7 @@ source "${LIB_FILE}"
 
 : "${BOXARR_TORBOX_MOUNT:=/DATA/torbox}"
 : "${RCLONE_MODE:=host}"
+: "${MOUNT_PROVIDER:=api}"
 
 if ! boxarr_detect_compose; then
   boxarr_compose_die_help
@@ -44,7 +45,9 @@ ensure_mount_propagation() {
     return 0
   fi
   warn "TorBox mount is not active at ${BOXARR_TORBOX_MOUNT}"
-  if [[ "${RCLONE_MODE}" == "host" ]]; then
+  if [[ "${MOUNT_PROVIDER}" == "api" ]]; then
+    warn "Try: ./manage.sh start  (starts torbox-media-center first)"
+  elif [[ "${RCLONE_MODE}" == "host" ]]; then
     warn "Try: sudo systemctl start boxarr-rclone"
   fi
 }
@@ -91,6 +94,11 @@ cmd="${1:-help}"
 case "${cmd}" in
   start)
     ensure_mount_propagation
+    if [[ "${MOUNT_PROVIDER}" == "api" ]]; then
+      log "Starting TorBox API mount..."
+      compose up -d torbox-mount
+      sleep 5
+    fi
     log "Starting Boxarr stack..."
     compose up -d --remove-orphans
     show_urls
@@ -101,6 +109,10 @@ case "${cmd}" in
   restart)
     ensure_mount_propagation
     compose stop
+    if [[ "${MOUNT_PROVIDER}" == "api" ]]; then
+      compose up -d torbox-mount
+      sleep 5
+    fi
     compose up -d --remove-orphans
     show_urls
     ;;
@@ -121,7 +133,17 @@ case "${cmd}" in
     show_urls
     ;;
   mount)
-    if [[ "${RCLONE_MODE}" == "host" ]]; then
+    if [[ "${MOUNT_PROVIDER}" == "api" ]]; then
+      if mountpoint -q "${BOXARR_TORBOX_MOUNT}" 2>/dev/null; then
+        log "TorBox mount is active at ${BOXARR_TORBOX_MOUNT}"
+        ls -la "${BOXARR_TORBOX_MOUNT}" | head -20
+      else
+        warn "TorBox mount is not active — starting torbox-media-center..."
+        compose up -d torbox-mount
+        sleep 5
+        mountpoint -q "${BOXARR_TORBOX_MOUNT}" && log "Mount is now active." || die "Mount still inactive — check: ./manage.sh logs torbox-mount"
+      fi
+    elif [[ "${RCLONE_MODE}" == "host" ]]; then
       if mountpoint -q "${BOXARR_TORBOX_MOUNT}" 2>/dev/null; then
         log "TorBox mount is active at ${BOXARR_TORBOX_MOUNT}"
         ls -la "${BOXARR_TORBOX_MOUNT}" | head -20
