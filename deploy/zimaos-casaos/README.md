@@ -9,9 +9,11 @@ Failsafe install for Boxarr + TorBox WebDAV (rclone) + optional Seerr.
 SSH into your NAS, then either clone the repo or use the one-liner:
 
 ```bash
-# One-liner (downloads install.sh + templates from GitHub main)
-curl -fsSL https://raw.githubusercontent.com/killamfkr/Boxarr2/main/deploy/zimaos-casaos/install.sh | bash
+# One-liner (jsDelivr CDN — raw.githubusercontent.com/.../main/... may 404 on some repos)
+curl -fsSL https://cdn.jsdelivr.net/gh/killamfkr/Boxarr2@main/deploy/zimaos-casaos/install.sh | bash
 ```
+
+If the one-liner fails, clone the repo and run `sudo bash deploy/zimaos-casaos/install.sh` instead.
 
 ```bash
 # From a git clone

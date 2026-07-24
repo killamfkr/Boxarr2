@@ -9,7 +9,7 @@
 #   sudo bash deploy/zimaos-casaos/install.sh
 #
 # One-liner (from GitHub main):
-#   curl -fsSL https://raw.githubusercontent.com/killamfkr/Boxarr2/main/deploy/zimaos-casaos/install.sh | bash
+#   curl -fsSL https://cdn.jsdelivr.net/gh/killamfkr/Boxarr2@main/deploy/zimaos-casaos/install.sh | bash
 #
 # Non-interactive:
 #   TORBOX_WEBDAV_USER=you@example.com TORBOX_WEBDAV_PASS=secret bash install.sh -y
@@ -86,7 +86,7 @@ resolve_bundle_dir() {
   fi
   local tmp base
   tmp="$(mktemp -d /tmp/boxarr-bundle.XXXXXX)"
-  base="${BOXARR_RAW_BASE:-https://raw.githubusercontent.com/killamfkr/Boxarr2/main/deploy/zimaos-casaos}"
+  base="${BOXARR_RAW_BASE:-https://cdn.jsdelivr.net/gh/killamfkr/Boxarr2@main/deploy/zimaos-casaos}"
   log "Downloading install bundle from ${base}..."
   for f in docker-compose.yml env.example manage.sh rclone-torbox.service; do
     curl -fsSL "${base}/${f}" -o "${tmp}/${f}" || die "Failed to download ${base}/${f}"
