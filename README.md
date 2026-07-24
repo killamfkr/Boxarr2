@@ -67,10 +67,11 @@ path** Boxarr does, because the symlink targets are absolute.
 The full stack — **Boxarr + rclone (TorBox WebDAV mount) + Seerr** — on one
 network. This mirrors [`deploy/docker-compose.yml`](deploy/docker-compose.yml).
 
-**CasaOS / ZimaOS:** use the dedicated installer — [`deploy/zimaos-casaos/install.sh`](deploy/zimaos-casaos/install.sh) — which sets `/DATA` paths, host rclone via systemd, and a `manage.sh` helper. Run over SSH; do not use the app GUI for this stack.
+**CasaOS / ZimaOS:** use the dedicated installer — [`deploy/zimaos-casaos/install.sh`](deploy/zimaos-casaos/install.sh). Download the script first (piped `curl | bash` cannot prompt for TorBox WebDAV credentials):
 
 ```bash
-curl -fsSL https://cdn.jsdelivr.net/gh/killamfkr/Boxarr2@main/deploy/zimaos-casaos/install.sh | bash
+curl -fsSL https://cdn.jsdelivr.net/gh/killamfkr/Boxarr2@main/deploy/zimaos-casaos/install.sh -o /tmp/boxarr-install.sh
+chmod +x /tmp/boxarr-install.sh && sudo /tmp/boxarr-install.sh
 ```
 
 ```yaml

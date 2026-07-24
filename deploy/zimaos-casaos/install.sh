@@ -8,11 +8,13 @@
 # Quick start (after cloning the repo):
 #   sudo bash deploy/zimaos-casaos/install.sh
 #
-# One-liner (from GitHub main):
-#   curl -fsSL https://cdn.jsdelivr.net/gh/killamfkr/Boxarr2@main/deploy/zimaos-casaos/install.sh | bash
+# One-liner (non-interactive — set WebDAV creds first, use sudo -E to keep env):
+#   TORBOX_WEBDAV_USER=you@example.com TORBOX_WEBDAV_PASS=secret \
+#     curl -fsSL https://cdn.jsdelivr.net/gh/killamfkr/Boxarr2@main/deploy/zimaos-casaos/install.sh | sudo -E bash -s -- -y
 #
-# Non-interactive:
-#   TORBOX_WEBDAV_USER=you@example.com TORBOX_WEBDAV_PASS=secret bash install.sh -y
+# Interactive (recommended over SSH — download first so prompts work):
+#   curl -fsSL https://cdn.jsdelivr.net/gh/killamfkr/Boxarr2@main/deploy/zimaos-casaos/install.sh -o /tmp/boxarr-install.sh
+#   chmod +x /tmp/boxarr-install.sh && sudo /tmp/boxarr-install.sh
 #
 # Environment (optional):
 #   BOXARR_INSTALL_DIR   default /DATA/AppData/boxarr-stack
@@ -30,6 +32,7 @@ VERSION="1.0.0"
 YES=false
 DOCKER_RCLONE=false
 NO_SEERR=false
+ENV_SECRETS=""
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -51,9 +54,13 @@ Usage: install.sh [options]
 
 Options:
   -y, --yes           Non-interactive (requires TORBOX_WEBDAV_USER/PASS or existing rclone.conf)
+  --env-file PATH     Load TORBOX_WEBDAV_USER/PASS (and other secrets) from a file
   --docker-rclone     Run rclone inside Docker instead of on the host (less reliable)
   --no-seerr          Skip the Seerr container
   -h, --help          Show this help
+
+TorBox WebDAV credentials are your torbox.app email + password (not the API key).
+When using curl | bash you must pass them via env vars — piping cannot prompt interactively.
 
 Docs: deploy/zimaos-casaos/README.md
 EOF
@@ -62,12 +69,23 @@ EOF
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -y|--yes) YES=true; shift ;;
+    --env-file)
+      [[ $# -ge 2 ]] || die "--env-file requires a path"
+      ENV_SECRETS="$2"
+      shift 2
+      ;;
     --docker-rclone) DOCKER_RCLONE=true; shift ;;
     --no-seerr) NO_SEERR=true; shift ;;
     -h|--help) usage; exit 0 ;;
     *) die "Unknown option: $1 (try --help)" ;;
   esac
 done
+
+if [[ -n "${ENV_SECRETS}" ]]; then
+  [[ -f "${ENV_SECRETS}" ]] || die "--env-file not found: ${ENV_SECRETS}"
+  # shellcheck disable=SC1090
+  source "${ENV_SECRETS}"
+fi
 
 # ── Locate bundled templates ─────────────────────────────────────────────────
 resolve_bundle_dir() {
@@ -125,7 +143,7 @@ COMPOSE_DST="${INSTALL_DIR}/docker-compose.yml"
 MANAGE_DST="${INSTALL_DIR}/manage.sh"
 
 prompt() {
-  local var="$1" prompt="$2" default="${3:-}" secret="${4:-false}"
+  local var="$1" prompt_text="$2" default="${3:-}" secret="${4:-false}"
   if $YES; then
     if [[ -z "${!var:-}" ]]; then
       if [[ -n "$default" ]]; then
@@ -136,17 +154,54 @@ prompt() {
     fi
     return
   fi
+  if [[ ! -t 0 ]]; then
+    boxarr_webdav_creds_die_help
+    exit 1
+  fi
   local input
   if [[ "$secret" == "true" ]]; then
-    read -rsp "${prompt}${default:+ [$default]}: " input
+    read -rsp "${prompt_text}${default:+ [$default]}: " input
     echo "" >&2
   else
-    read -rp "${prompt}${default:+ [$default]}: " input
+    read -rp "${prompt_text}${default:+ [$default]}: " input
   fi
   if [[ -z "$input" && -n "$default" ]]; then
     input="$default"
   fi
   printf -v "$var" '%s' "$input"
+}
+
+webdav_creds_ready() {
+  [[ -f "${RCLONE_CONFIG}" ]] && grep -q "^\[${RCLONE_REMOTE}\]" "${RCLONE_CONFIG}" && return 0
+  [[ -n "${TORBOX_WEBDAV_USER:-}" && -n "${TORBOX_WEBDAV_PASS:-}" ]] && return 0
+  return 1
+}
+
+boxarr_webdav_creds_die_help() {
+  cat <<'EOF' >&2
+
+TorBox WebDAV credentials are required (your torbox.app email + password — not the API key).
+
+If you used  curl ... | bash , the installer cannot prompt interactively. Use one of these:
+
+  # Option A — pass credentials (sudo -E keeps env vars through sudo):
+  TORBOX_WEBDAV_USER='your@email.com' \
+  TORBOX_WEBDAV_PASS='your-password' \
+    curl -fsSL https://cdn.jsdelivr.net/gh/killamfkr/Boxarr2@main/deploy/zimaos-casaos/install.sh \
+    | sudo -E bash -s -- -y
+
+  # Option B — download first, then run interactively (recommended):
+  curl -fsSL https://cdn.jsdelivr.net/gh/killamfkr/Boxarr2@main/deploy/zimaos-casaos/install.sh -o /tmp/boxarr-install.sh
+  chmod +x /tmp/boxarr-install.sh
+  sudo /tmp/boxarr-install.sh
+
+  # Option C — secrets file:
+  printf 'TORBOX_WEBDAV_USER=your@email.com\nTORBOX_WEBDAV_PASS=your-password\n' > /tmp/boxarr.env
+  chmod 600 /tmp/boxarr.env
+  sudo /tmp/boxarr-install.sh --env-file /tmp/boxarr.env -y
+
+Docs: https://support.torbox.app/en/articles/14662867-torbox-webdav
+EOF
 }
 
 need_cmd() {
@@ -248,11 +303,9 @@ EOF
 }
 
 step "TorBox WebDAV / rclone configuration"
-if [[ -f "${RCLONE_CONFIG}" ]] && grep -q "^\[${RCLONE_REMOTE}\]" "${RCLONE_CONFIG}"; then
+if webdav_creds_ready && [[ -f "${RCLONE_CONFIG}" ]] && grep -q "^\[${RCLONE_REMOTE}\]" "${RCLONE_CONFIG}"; then
   log "Using existing ${RCLONE_CONFIG}"
 else
-  TORBOX_WEBDAV_USER="${TORBOX_WEBDAV_USER:-}"
-  TORBOX_WEBDAV_PASS="${TORBOX_WEBDAV_PASS:-}"
   if [[ -z "${TORBOX_WEBDAV_USER}" || -z "${TORBOX_WEBDAV_PASS}" ]]; then
     echo "" >&2
     warn "TorBox WebDAV credentials are your torbox.app login (email + password)."
@@ -261,7 +314,10 @@ else
     prompt TORBOX_WEBDAV_USER "TorBox WebDAV username (email)"
     prompt TORBOX_WEBDAV_PASS "TorBox WebDAV password" "" true
   fi
-  [[ -n "${TORBOX_WEBDAV_USER}" && -n "${TORBOX_WEBDAV_PASS}" ]] || die "TorBox WebDAV credentials are required."
+  [[ -n "${TORBOX_WEBDAV_USER}" && -n "${TORBOX_WEBDAV_PASS}" ]] || {
+    boxarr_webdav_creds_die_help
+    exit 1
+  }
   write_rclone_config "${TORBOX_WEBDAV_USER}" "${TORBOX_WEBDAV_PASS}"
   log "Wrote ${RCLONE_CONFIG}"
 fi
