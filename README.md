@@ -71,7 +71,7 @@ network. This mirrors [`deploy/docker-compose.yml`](deploy/docker-compose.yml).
 
 ```bash
 TORBOX_API_KEY='your-api-key' \
-  curl -fsSL https://cdn.jsdelivr.net/gh/killamfkr/Boxarr2@main/deploy/zimaos-casaos/install.sh \
+  curl -fsSL https://raw.githubusercontent.com/killamfkr/Boxarr2/main/deploy/zimaos-casaos/install.sh \
   | sudo -E bash -s -- -y
 ```
 
